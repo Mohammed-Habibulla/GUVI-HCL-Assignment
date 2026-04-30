@@ -1,135 +1,97 @@
-1. Smart Water Supply & Consumption Monitoring System
-1. Collection Design
- Consumers
-{
-  _id: ObjectId(),
-  name: "Rahul Sharma",
-  type: "Residential", // Residential / Commercial / Industrial
-  zone_id: ObjectId(),
-  address: "Bangalore"
-}
- Meters
-{
-  _id: ObjectId(),
-  consumer_id: ObjectId(),
-  installation_date: ISODate("2025-01-10"),
-  status: "Active"
-}
- WaterUsage (Time-Series Data)
-{
-  _id: ObjectId(),
-  meter_id: ObjectId(),
-  timestamp: ISODate("2026-04-01T10:00:00Z"),
-  consumption: 120,   // liters
-  pressure: 50,       // PSI
-  leakage_flag: false
-}
- Zones
-{
-  _id: ObjectId(),
-  zone_name: "Zone A",
-  region: "North",
-  coordinates: {
-    type: "Point",
-    coordinates: [77.5946, 12.9716] // longitude, latitude
-  }
-}
- Alerts
-{
-  _id: ObjectId(),
-  meter_id: ObjectId(),
-  alert_type: "Leakage" || "High Usage",
-  message: "Possible leakage detected",
-  timestamp: ISODate(),
-  status: "Active"
-}
+//problem-1. Smart Water Supply & Consumption Monitoring System
+//1. Create Collections
+//use water_management_system
 
-2. Insert Sample Data
-Insert Consumer
-db.Consumers.insertOne({
-  name: "Rahul Sharma",
-  type: "Residential",
-  zone_id: ObjectId("zone1"),
-  address: "Bangalore"
-});
-Insert Meter
-db.Meters.insertOne({
-  consumer_id: ObjectId("consumer1"),
-  installation_date: new Date(),
-  status: "Active"
-});
-Insert Water Usage (Multiple Records)
+db.createCollection("Consumers")
+db.createCollection("Meters")
+db.createCollection("Zones")
+db.createCollection("WaterUsage")
+db.createCollection("Alerts")
+// 2. Insert Sample Data
+// Zones
+db.Zones.insertMany([
+  { _id: 1, name: "Residential Area", location: "Zone A" },
+  { _id: 2, name: "Commercial Area", location: "Zone B" },
+  { _id: 3, name: "Industrial Area", location: "Zone C" }
+])
+// Consumers
+db.Consumers.insertMany([
+  { _id: 101, name: "Rahul Sharma", type: "Residential", zone_id: 1 },
+  { _id: 102, name: "ABC Mall", type: "Commercial", zone_id: 2 },
+  { _id: 103, name: "XYZ Factory", type: "Industrial", zone_id: 3 }
+])
+// Meters
+db.Meters.insertMany([
+  { _id: 201, consumer_id: 101, meter_number: "MTR001" },
+  { _id: 202, consumer_id: 102, meter_number: "MTR002" },
+  { _id: 203, consumer_id: 103, meter_number: "MTR003" }
+])
+// Water Usage (Time-Series Data)
 db.WaterUsage.insertMany([
-{
-  meter_id: ObjectId("meter1"),
-  timestamp: ISODate("2026-04-01T08:00:00Z"),
-  consumption: 100,
-  pressure: 55,
-  leakage_flag: false
-},
-{
-  meter_id: ObjectId("meter1"),
-  timestamp: ISODate("2026-04-02T08:00:00Z"),
-  consumption: 300,
-  pressure: 30,
-  leakage_flag: true
-}
-]);
- 3. Query: Consumption in Date Range
-db.WaterUsage.find({
-  meter_id: ObjectId("meter1"),
-  timestamp: {
-    $gte: ISODate("2026-04-01T00:00:00Z"),
-    $lte: ISODate("2026-04-05T00:00:00Z")
+  {
+    consumer_id: 101,
+    meter_id: 201,
+    date: new Date("2026-04-01"),
+    consumption: 120,
+    pressure: 30,
+    leakage_flag: false
+  },
+  {
+    consumer_id: 101,
+    meter_id: 201,
+    date: new Date("2026-04-05"),
+    consumption: 300,
+    pressure: 20,
+    leakage_flag: true
+  },
+  {
+    consumer_id: 102,
+    meter_id: 202,
+    date: new Date("2026-04-03"),
+    consumption: 500,
+    pressure: 40,
+    leakage_flag: false
+  },
+  {
+    consumer_id: 103,
+    meter_id: 203,
+    date: new Date("2026-04-02"),
+    consumption: 900,
+    pressure: 15,
+    leakage_flag: true
   }
-});
-
- Explain like this:
-
-$gte = start date
-$lte = end date
-Filters time-series data
- 4. Update: Generate Alerts
- High Usage Alert
+])
+// 3. Query
+// Water consumption for a specific consumer within date range
 db.WaterUsage.find({
-  consumption: { $gt: 250 }
-}).forEach(function(doc){
-  db.Alerts.insertOne({
-    meter_id: doc.meter_id,
-    alert_type: "High Usage",
-    message: "Abnormal water usage detected",
-    timestamp: new Date(),
-    status: "Active"
-  });
-});
- Leakage Alert
-db.WaterUsage.find({
-  leakage_flag: true
-}).forEach(function(doc){
-  db.Alerts.insertOne({
-    meter_id: doc.meter_id,
-    alert_type: "Leakage",
-    message: "Leakage detected",
-    timestamp: new Date(),
-    status: "Active"
-  });
-});
- 5. Aggregation Queries
- (A) Average Consumption per Zone
+  consumer_id: 101,
+  date: {
+    $gte: new Date("2026-04-01"),
+    $lte: new Date("2026-04-10")
+  }
+})
+// 4. Update / Generate Alerts
+// Condition:
+//High consumption (> 250)
+//OR leakage detected
+db.WaterUsage.find().forEach(function(record) {
+  if (record.consumption > 250 || record.leakage_flag === true) {
+    db.Alerts.insertOne({
+      consumer_id: record.consumer_id,
+      meter_id: record.meter_id,
+      date: record.date,
+      message: "Abnormal usage or leakage detected",
+      status: "Active"
+    })
+  }
+})
+// 5. Aggregation Queries
+// (A) Average Consumption per Zone
 db.WaterUsage.aggregate([
   {
     $lookup: {
-      from: "Meters",
-      localField: "meter_id",
-      foreignField: "_id",
-      as: "meter"
-    }
-  },
-  { $unwind: "$meter" },
-  {
-    $lookup: {
       from: "Consumers",
-      localField: "meter.consumer_id",
+      localField: "consumer_id",
       foreignField: "_id",
       as: "consumer"
     }
@@ -141,35 +103,47 @@ db.WaterUsage.aggregate([
       avg_consumption: { $avg: "$consumption" }
     }
   }
-]);
- (B) Identify High-Usage Areas
+])
+// (B) Identify High-Usage Areas
 db.WaterUsage.aggregate([
   {
+    $lookup: {
+      from: "Consumers",
+      localField: "consumer_id",
+      foreignField: "_id",
+      as: "consumer"
+    }
+  },
+  { $unwind: "$consumer" },
+  {
     $group: {
-      _id: "$meter_id",
-      total_usage: { $sum: "$consumption" }
+      _id: "$consumer.zone_id",
+      total_consumption: { $sum: "$consumption" }
+    }
+  },
+  {
+    $sort: { total_consumption: -1 }
+  }
+])
+// (C) Detect Possible Leakage Patterns
+db.WaterUsage.aggregate([
+  {
+    $match: {
+      $or: [
+        { leakage_flag: true },
+        { pressure: { $lt: 20 } }
+      ]
+    }
+  },
+  {
+    $group: {
+      _id: "$consumer_id",
+      count: { $sum: 1 }
     }
   },
   {
     $match: {
-      total_usage: { $gt: 500 }
+      count: { $gt: 1 }
     }
   }
-]);
- (C) Detect Leakage Patterns
-db.WaterUsage.aggregate([
-  {
-    $match: { leakage_flag: true }
-  },
-  {
-    $group: {
-      _id: "$meter_id",
-      leakage_count: { $sum: 1 }
-    }
-  },
-  {
-    $match: {
-      leakage_count: { $gt: 2 }
-    }
-  }
-]);
+])

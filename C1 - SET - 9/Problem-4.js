@@ -1,99 +1,124 @@
-4. Renewable Energy Production & Grid Integration System
-1. Collection Design
- EnergyPlants
-{
-  _id: ObjectId(),
-  name: "Solar Plant A",
-  type: "Solar", // Solar / Wind
-  location_id: ObjectId(),
-  capacity: 500, // kW
-  status: "Active"
-}
- Sensors
-{
-  _id: ObjectId(),
-  plant_id: ObjectId(),
-  sensor_type: "Production", // Production / Temperature / WindSpeed
-  installation_date: ISODate()
-}
- EnergyProduction (Time-Series)
-{
-  _id: ObjectId(),
-  plant_id: ObjectId(),
-  sensor_id: ObjectId(),
-  timestamp: ISODate(),
-  energy_generated: 120, // kWh
-  efficiency: 85 // %
-}
- GridData
-{
-  _id: ObjectId(),
-  location_id: ObjectId(),
-  timestamp: ISODate(),
-  energy_supplied: 500,  // kWh
-  energy_consumed: 450   // kWh
-}
- Locations (Geospatial)
-{
-  _id: ObjectId(),
-  name: "Bangalore Zone",
-  coordinates: {
-    type: "Point",
-    coordinates: [77.5946, 12.9716]
+//problem-4. Renewable Energy Production & Grid Integration System
+//1. Create Collections
+//use renewable_energy_system
+
+db.createCollection("EnergyPlants")
+db.createCollection("Sensors")
+db.createCollection("EnergyProduction")
+db.createCollection("GridData")
+db.createCollection("Locations")
+// 2. Insert Sample Data
+// Locations
+db.Locations.insertMany([
+  { _id: 1, name: "Bangalore", region: "South" },
+  { _id: 2, name: "Mumbai", region: "West" }
+])
+// Energy Plants
+db.EnergyPlants.insertMany([
+  {
+    _id: 101,
+    name: "Solar Plant A",
+    type: "Solar",
+    location_id: 1,
+    capacity: 1000, // kW
+    status: "Active"
+  },
+  {
+    _id: 102,
+    name: "Wind Plant B",
+    type: "Wind",
+    location_id: 2,
+    capacity: 1500,
+    status: "Active"
   }
-}
- 2. Insert Sample Data
-Insert Energy Production Logs
+])
+// Sensors
+db.Sensors.insertMany([
+  { _id: 201, plant_id: 101, sensor_type: "Solar Panel Sensor" },
+  { _id: 202, plant_id: 102, sensor_type: "Wind Turbine Sensor" }
+])
+// Energy Production (Time-Series)
 db.EnergyProduction.insertMany([
-{
-  plant_id: ObjectId("plant1"),
-  sensor_id: ObjectId("sensor1"),
-  timestamp: ISODate("2026-04-01T10:00:00Z"),
-  energy_generated: 100,
-  efficiency: 90
-},
-{
-  plant_id: ObjectId("plant1"),
-  sensor_id: ObjectId("sensor1"),
-  timestamp: ISODate("2026-04-01T12:00:00Z"),
-  energy_generated: 150,
-  efficiency: 88
-},
-{
-  plant_id: ObjectId("plant2"),
-  sensor_id: ObjectId("sensor2"),
-  timestamp: ISODate("2026-04-01T10:00:00Z"),
-  energy_generated: 80,
-  efficiency: 60
-}
-]);
- 3. Query: Energy Production in Time Range
-db.EnergyProduction.find({
-  plant_id: ObjectId("plant1"),
-  timestamp: {
-    $gte: ISODate("2026-04-01T00:00:00Z"),
-    $lte: ISODate("2026-04-02T00:00:00Z")
+  {
+    plant_id: 101,
+    sensor_id: 201,
+    timestamp: new Date("2026-04-01T10:00:00"),
+    energy_output: 500
+  },
+  {
+    plant_id: 101,
+    sensor_id: 201,
+    timestamp: new Date("2026-04-01T14:00:00"),
+    energy_output: 800
+  },
+  {
+    plant_id: 102,
+    sensor_id: 202,
+    timestamp: new Date("2026-04-01T10:00:00"),
+    energy_output: 700
+  },
+  {
+    plant_id: 102,
+    sensor_id: 202,
+    timestamp: new Date("2026-04-01T14:00:00"),
+    energy_output: 1200
   }
-});
-
- Explain:
-
-Filters time-series data
-Used for performance monitoring
- 4. Update: Flag Underperforming Plants
-
- Condition: efficiency < 70%
-
+])
+// Grid Data
+db.GridData.insertMany([
+  {
+    location_id: 1,
+    timestamp: new Date("2026-04-01T10:00:00"),
+    supply: 500,
+    demand: 450
+  },
+  {
+    location_id: 2,
+    timestamp: new Date("2026-04-01T14:00:00"),
+    supply: 1200,
+    demand: 1300
+  }
+])
+// 3. Query
+// Retrieve energy production data for a plant within a time range
 db.EnergyProduction.find({
-  efficiency: { $lt: 70 }
-}).forEach(function(doc){
+  plant_id: 101,
+  timestamp: {
+    $gte: new Date("2026-04-01T00:00:00"),
+    $lte: new Date("2026-04-02T00:00:00")
+  }
+})
+// 4. Update
+// Flag underperforming plants
+
+// Condition:
+
+//Output < 50% of capacity
+db.EnergyProduction.aggregate([
+  {
+    $lookup: {
+      from: "EnergyPlants",
+      localField: "plant_id",
+      foreignField: "_id",
+      as: "plant"
+    }
+  },
+  { $unwind: "$plant" },
+  {
+    $match: {
+      $expr: {
+        $lt: ["$energy_output", { $multiply: ["$plant.capacity", 0.5] }]
+      }
+    }
+  }
+]).forEach(function(record) {
   db.EnergyPlants.updateOne(
-    { _id: doc.plant_id },
+    { _id: record.plant_id },
     { $set: { status: "Underperforming" } }
-  );
-});
- 5. Aggregation Queries
- (A) Total Energy per Location
+  )
+})
+// 5. Aggregation Queries
+// (A) Total Energy Produced per Location
 db.EnergyProduction.aggregate([
   {
     $lookup: {
@@ -107,32 +132,52 @@ db.EnergyProduction.aggregate([
   {
     $group: {
       _id: "$plant.location_id",
-      total_energy: { $sum: "$energy_generated" }
+      total_energy: { $sum: "$energy_output" }
     }
   }
-]);
- (B) Peak Production Periods
+])
+// (B) Identify Peak Production Periods
 db.EnergyProduction.aggregate([
   {
     $group: {
       _id: "$timestamp",
-      total_energy: { $sum: "$energy_generated" }
+      total_output: { $sum: "$energy_output" }
     }
   },
-  { $sort: { total_energy: -1 } },
-  { $limit: 5 }
-]);
- (C) Detect Inefficient Plants
+  {
+    $sort: { total_output: -1 }
+  },
+  {
+    $limit: 3
+  }
+])
+// (C) Detect Inefficient Plants
+
+// Condition:
+
+//Average production < 60% of capacity
 db.EnergyProduction.aggregate([
+  {
+    $lookup: {
+      from: "EnergyPlants",
+      localField: "plant_id",
+      foreignField: "_id",
+      as: "plant"
+    }
+  },
+  { $unwind: "$plant" },
   {
     $group: {
       _id: "$plant_id",
-      avg_efficiency: { $avg: "$efficiency" }
+      avg_output: { $avg: "$energy_output" },
+      capacity: { $first: "$plant.capacity" }
     }
   },
   {
     $match: {
-      avg_efficiency: { $lt: 70 }
+      $expr: {
+        $lt: ["$avg_output", { $multiply: ["$capacity", 0.6] }]
+      }
     }
   }
-]);
+])

@@ -1,66 +1,47 @@
-5. Multi-Hospital Emergency Bed Management System
-1. Collection Design
- Hospitals
-{
-  _id: ObjectId(),
-  name : "City Hospital",
-  location_id: ObjectId(),
-  address: "Bangalore"
-}
- Departments
-{
-  _id: ObjectId(),
-  hospital_id: ObjectId(),
-  name: "ICU" // ICU / General / Emergency
-}
- Beds
-{
-  _id: ObjectId(),
-  hospital_id: ObjectId(),
-  department_id: ObjectId(),
-  bed_number: "ICU-101",
-  is_available: true
-}
- Patients
-{
-  _id: ObjectId(),
-  name: "Amit Kumar",
-  age: 45,
-  condition: "Critical"
-}
- Admissions
-{
-  _id: ObjectId(),
-  patient_id: ObjectId(),
-  hospital_id: ObjectId(),
-  bed_id: ObjectId(),
-  admission_date: ISODate(),
-  discharge_date: null,
-  status: "Admitted"
-}
- 2. Insert Sample Data
-Insert Bed Availability
+//problem-5. Multi-Hospital Emergency Bed Management System
+// 1. Create Collections
+//use hospital_bed_management
+
+db.createCollection("Hospitals")
+db.createCollection("Departments")
+db.createCollection("Beds")
+db.createCollection("Patients")
+db.createCollection("Admissions")
+// 2. Insert Sample Data
+// Hospitals
+db.Hospitals.insertMany([
+  { _id: 1, name: "City Hospital", location: "Bangalore" },
+  { _id: 2, name: "Apollo Hospital", location: "Bangalore" }
+])
+// Departments
+db.Departments.insertMany([
+  { _id: 101, hospital_id: 1, name: "ICU" },
+  { _id: 102, hospital_id: 1, name: "General" },
+  { _id: 103, hospital_id: 2, name: "ICU" }
+])
+// Beds (Availability)
 db.Beds.insertMany([
-{
-  hospital_id: ObjectId("hospital1"),
-  department_id: ObjectId("icu1"),
-  bed_number: "ICU-101",
-  is_available: true
-},
-{
-  hospital_id: ObjectId("hospital1"),
-  department_id: ObjectId("icu1"),
-  bed_number: "ICU-102",
-  is_available: false
-},
-{
-  hospital_id: ObjectId("hospital2"),
-  department_id: ObjectId("icu2"),
-  bed_number: "ICU-201",
-  is_available: true
-}
-]);
- 3. Query: Find Available ICU Beds (Nearby Hospitals)
+  { _id: 201, hospital_id: 1, department_id: 101, bed_number: "ICU-1", status: "Available" },
+  { _id: 202, hospital_id: 1, department_id: 101, bed_number: "ICU-2", status: "Occupied" },
+  { _id: 203, hospital_id: 2, department_id: 103, bed_number: "ICU-1", status: "Available" }
+])
+// Patients
+db.Patients.insertMany([
+  { _id: 301, name: "Ramesh", condition: "Critical" },
+  { _id: 302, name: "Sita", condition: "Stable" }
+])
+// Admissions
+db.Admissions.insertMany([
+  {
+    _id: 401,
+    patient_id: 301,
+    hospital_id: 1,
+    bed_id: 202,
+    admission_date: new Date("2026-04-01")
+  }
+])
+// 3. Query
+// Find available ICU beds in nearby hospitals
 db.Beds.aggregate([
   {
     $lookup: {
@@ -73,37 +54,41 @@ db.Beds.aggregate([
   { $unwind: "$dept" },
   {
     $match: {
-      "dept.name": "ICU",
-      is_available: true
+      status: "Available",
+      "dept.name": "ICU"
     }
-  }
-]);
+  },
+  {
+    $lookup: {
+      from: "Hospitals",
+      localField: "hospital_id",
+      foreignField: "_id",
+      as: "hospital"
+    }
+  },
+  { $unwind: "$hospital" }
+])
+// 4. Update
+// Allocate bed to patient & update availability
+var availableBed = db.Beds.findOne({ status: "Available" })
 
- Explain:
+if (availableBed) {
+  // Update bed status
+  db.Beds.updateOne(
+    { _id: availableBed._id },
+    { $set: { status: "Occupied" } }
+  )
 
-Filters only ICU beds
-Shows available beds across hospitals
-Can be extended with location-based filtering
- 4. Update: Allocate Bed to Patient
- Step 1: Update Bed Availability
-db.Beds.updateOne(
-  { _id: ObjectId("bed1"), is_available: true },
-  { $set: { is_available: false } }
-);
- Step 2: Create Admission Record
-db.Admissions.insertOne({
-  patient_id: ObjectId("patient1"),
-  hospital_id: ObjectId("hospital1"),
-  bed_id: ObjectId("bed1"),
-  admission_date: new Date(),
-  discharge_date: null,
-  status: "Admitted"
-});
-
-👉 Prevents overbooking because we check availability first.
-
- 5. Aggregation Queries
- (A) Bed Occupancy Rate
+  // Create admission record
+  db.Admissions.insertOne({
+    patient_id: 302,
+    hospital_id: availableBed.hospital_id,
+    bed_id: availableBed._id,
+    admission_date: new Date()
+  })
+}
+// 5. Aggregation Queries
+// (A) Bed Occupancy Rate
 db.Beds.aggregate([
   {
     $group: {
@@ -111,7 +96,7 @@ db.Beds.aggregate([
       total_beds: { $sum: 1 },
       occupied_beds: {
         $sum: {
-          $cond: [{ $eq: ["$is_available", false] }, 1, 0]
+          $cond: [{ $eq: ["$status", "Occupied"] }, 1, 0]
         }
       }
     }
@@ -126,18 +111,24 @@ db.Beds.aggregate([
       }
     }
   }
-]);
-Hospitals with Highest Patient Load
+])
+// (B) Hospitals with Highest Patient Load
 db.Admissions.aggregate([
   {
     $group: {
       _id: "$hospital_id",
-      total_patients: { $sum: 1 }
+      patient_count: { $sum: 1 }
     }
   },
-  { $sort: { total_patients: -1 } }
-]);
- (C) Detect Shortage of Critical Resources (ICU Beds)
+  {
+    $sort: { patient_count: -1 }
+  }
+])
+// (C) Detect Shortage of Critical Resources (ICU Beds)
+
+// Condition:
+
+//Available ICU beds < 2
 db.Beds.aggregate([
   {
     $lookup: {
@@ -154,16 +145,14 @@ db.Beds.aggregate([
   {
     $group: {
       _id: "$hospital_id",
-      available_beds: {
+      available_ICU: {
         $sum: {
-          $cond: [{ $eq: ["$is_available", true] }, 1, 0]
+          $cond: [{ $eq: ["$status", "Available"] }, 1, 0]
         }
       }
     }
   },
   {
-    $match: {
-      available_beds: { $lt: 2 } // shortage threshold
-    }
+    $match: { available_ICU: { $lt: 2 } }
   }
-]);
+])
